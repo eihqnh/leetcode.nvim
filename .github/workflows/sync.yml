@@ -1,0 +1,33 @@
+name: Upstream Rebase Sync
+
+on:
+  schedule:
+    - cron: "0 7 * * *" # 每天 07:00 UTC
+  workflow_dispatch: {} # 支持手动触发
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # 将上游 kawre/leetcode.nvim 的新提交 rebase 到本 fork 的 master 下方，
+      # 本 fork 的本地补丁 commit（filename_format + lang_dir）始终保持在最上面。
+      # 冲突时该 action 会失败退出且不会推送，需手动解决：
+      #   git fetch upstream master && git rebase upstream/master
+      #   （解决冲突后）git push --force-with-lease origin master
+      - name: Rebase onto upstream
+        uses: aormsby/Fork-Sync-With-Upstream-action@v3.4.3
+        with:
+          target_sync_branch: master
+          target_repo_token: ${{ secrets.GITHUB_TOKEN }}
+          upstream_sync_repo: kawre/leetcode.nvim
+          upstream_sync_branch: master
+          git_config_pull_rebase: "true" # git pull 改为 git pull --rebase
+          target_branch_push_args: "--force" # rebase 重写历史，需强推
