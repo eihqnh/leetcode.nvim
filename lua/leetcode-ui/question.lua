@@ -70,6 +70,35 @@ function Question:path()
     local lang = utils.get_lang(self.lang)
     local alt = lang.alt and ("." .. lang.alt) or ""
 
+    -- 本地补丁：storage.filename_format 自定义文件名 + storage.lang_dir 按语言分目录。
+    -- 占位符：{id} {slug} {alt} {lang} {ft}。{id}/{slug} 来自 API，可能含空格等非法
+    -- 字符（如力扣中国 LCR 题的 frontend_id 是 "LCR 119"），会 sanitize 成下划线；
+    -- {alt} 是插件构造的（如 python 的 ".python2"），不 sanitize。
+    local fmt = config.user.storage.filename_format
+    if fmt and fmt ~= "" then
+        local function sane(s)
+            return (s:gsub("[^%w%-]", "_")) -- 保留字母数字和连字符，其余（如空格）→ 下划线
+        end
+        local fn = fmt
+            :gsub("{id}", sane(self.q.frontend_id or ""))
+            :gsub("{slug}", sane(self.q.title_slug or ""))
+            :gsub("{alt}", alt)
+            :gsub("{lang}", lang.slug)
+            :gsub("{ft}", lang.ft)
+        local lang_dir = config.user.storage.lang_dir
+        if lang_dir then
+            -- true → lang.slug/；table → 按 lang.slug 查表，缺省用 lang.slug
+            fn = (type(lang_dir) == "table" and lang_dir[lang.slug] or lang.slug) .. "/" .. fn
+        end
+        self.file = config.storage.home:joinpath(fn)
+        local existed = self.file:exists()
+        if not existed then
+            self.file:parent():mkdir({ parents = true })
+            self.file:write(self:snippet(), "w")
+        end
+        return self.file:absolute(), existed
+    end
+
     -- handle legacy file names first
     local fn_legacy = --
         ("%s.%s-%s.%s"):format(self.q.frontend_id, self.q.title_slug, lang.slug, lang.ft)

@@ -54,7 +54,12 @@ function config.setup()
         config.user.storage.home = config.user.directory
     end
 
-    config.user.storage = vim.tbl_map(vim.fn.expand, config.user.storage)
+    -- 本地补丁：storage 支持非字符串值（如 lang_dir 映射表），只对字符串做 ~ 展开
+    for k, v in pairs(config.user.storage) do
+        if type(v) == "string" then
+            config.user.storage[k] = vim.fn.expand(v)
+        end
+    end
 
     config.debug = config.user.debug or false ---@diagnostic disable-line
     config.lang = config.user.lang
