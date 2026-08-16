@@ -65,32 +65,53 @@ function Question:reset_previous_code()
     end)
 end
 
+---@param lang_slug string
+---@return Path? 该语言对应的题解文件路径（仅自定义文件名格式时有效）
+function Question:lang_file(lang_slug)
+    local lang = utils.get_lang(lang_slug)
+    local fmt = config.user.storage.filename_format
+    if not lang or not fmt or fmt == "" then
+        return nil
+    end
+    -- 与 path() 相同的命名规则：占位符 {id} {slug} {alt} {lang} {ft}，
+    -- {id}/{slug} sanitize（非字母数字/连字符→下划线），lang_dir 按语言分目录
+    local function sane(s)
+        return (s:gsub("[^%w%-]", "_"))
+    end
+    local alt = lang.alt and ("." .. lang.alt) or ""
+    local fn = fmt
+        :gsub("{id}", sane(self.q.frontend_id or ""))
+        :gsub("{slug}", sane(self.q.title_slug or ""))
+        :gsub("{alt}", alt)
+        :gsub("{lang}", lang.slug)
+        :gsub("{ft}", lang.ft)
+    local lang_dir = config.user.storage.lang_dir
+    if lang_dir then
+        fn = (type(lang_dir) == "table" and lang_dir[lang.slug] or lang.slug) .. "/" .. fn
+    end
+    return config.storage.home:joinpath(fn)
+end
+
+---@return string|nil 最后修改过题解文件的语言 slug（只遍历 injector 配置过的语言）
+function Question:detect_last_lang()
+    local best_slug, best_time = nil, -1
+    for slug in pairs(config.user.injector or {}) do
+        local f = self:lang_file(slug)
+        if f then
+            local stat = vim.uv.fs_stat(f:absolute())
+            if stat and stat.mtime.sec > best_time then
+                best_time, best_slug = stat.mtime.sec, slug
+            end
+        end
+    end
+    return best_slug
+end
+
 ---@return string path, boolean existed
 function Question:path()
-    local lang = utils.get_lang(self.lang)
-    local alt = lang.alt and ("." .. lang.alt) or ""
-
-    -- 本地补丁：storage.filename_format 自定义文件名 + storage.lang_dir 按语言分目录。
-    -- 占位符：{id} {slug} {alt} {lang} {ft}。{id}/{slug} 来自 API，可能含空格等非法
-    -- 字符（如力扣中国 LCR 题的 frontend_id 是 "LCR 119"），会 sanitize 成下划线；
-    -- {alt} 是插件构造的（如 python 的 ".python2"），不 sanitize。
-    local fmt = config.user.storage.filename_format
-    if fmt and fmt ~= "" then
-        local function sane(s)
-            return (s:gsub("[^%w%-]", "_")) -- 保留字母数字和连字符，其余（如空格）→ 下划线
-        end
-        local fn = fmt
-            :gsub("{id}", sane(self.q.frontend_id or ""))
-            :gsub("{slug}", sane(self.q.title_slug or ""))
-            :gsub("{alt}", alt)
-            :gsub("{lang}", lang.slug)
-            :gsub("{ft}", lang.ft)
-        local lang_dir = config.user.storage.lang_dir
-        if lang_dir then
-            -- true → lang.slug/；table → 按 lang.slug 查表，缺省用 lang.slug
-            fn = (type(lang_dir) == "table" and lang_dir[lang.slug] or lang.slug) .. "/" .. fn
-        end
-        self.file = config.storage.home:joinpath(fn)
+    local file = self:lang_file(self.lang)
+    if file then
+        self.file = file
         local existed = self.file:exists()
         if not existed then
             self.file:parent():mkdir({ parents = true })
@@ -98,6 +119,10 @@ function Question:path()
         end
         return self.file:absolute(), existed
     end
+
+    -- 未配置 filename_format 时的默认（legacy）行为
+    local lang = utils.get_lang(self.lang)
+    local alt = lang.alt and ("." .. lang.alt) or ""
 
     -- handle legacy file names first
     local fn_legacy = --
@@ -359,6 +384,11 @@ function Question:mount()
         return log.warn("Question is for premium users only")
     end
     self.q = q
+
+    -- 本地补丁：按该题最后修改的语言文件恢复语言（editor.resume_language）
+    if config.user.editor.resume_language then
+        self.lang = self:detect_last_lang() or config.lang
+    end
 
     if self:snippet() then
         self:handle_mount()
