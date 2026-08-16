@@ -15,6 +15,9 @@ jobs:
       - name: Checkout fork
         uses: actions/checkout@v4
         with:
+          # 完整克隆：避免浅克隆触发该 action 的 --unshallow 分支（其中有条
+          # 无效的 `git repack -d upstream <branch>` 命令），让 rebase 走干净路径
+          fetch-depth: 0
           persist-credentials: false
 
       # 将上游 kawre/leetcode.nvim 的新提交 rebase 到本 fork 的 master 下方，
